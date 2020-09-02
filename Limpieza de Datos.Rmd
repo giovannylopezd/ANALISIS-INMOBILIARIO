@@ -20,7 +20,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
 ```{r}
 library(tidyverse)
 #Cargamos los datos
-casas <- read_csv("https://raw.githubusercontent.com/giovannylopezd/Web-Scrapping/master/precios%20casas.csv")
+casas <- read_csv("https://raw.githubusercontent.com/giovannylopezd/Web-Scrapping/master/casas.csv")
 ```
 
 ### Observamos los datos
