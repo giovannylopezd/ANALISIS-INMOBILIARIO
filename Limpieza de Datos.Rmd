@@ -1,0 +1,222 @@
+---
+title: "Inmuebles en Santa Cruz"
+author: "Giovanny Lopez"
+output:
+  html_document: 
+    theme: flatly
+    highlight: tango
+    toc: yes
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
+                      message = FALSE)
+```
+
+## Carga y Limpieza
+
+### Carga de Datos
+```{r}
+library(tidyverse)
+#Cargamos los datos
+casas <- read_csv("https://raw.githubusercontent.com/giovannylopezd/Web-Scrapping/master/precios%20casas.csv")
+```
+
+### Observamos los datos
+```{r}
+# Echamos un vistazo a la tabla y vemos la cantidad de observaciones
+casas
+```
+
+### Eliminamos NA's
+```{r}
+# filtramos valores vacíos en la variable precio 
+casas <- casas %>% filter(!is.na(precio))
+# Observamos que precio tiene una clase que no nos sirve
+class(casas$precio)
+```
+
+### Formato de Precio
+Aquí quitamos los puntos de los números
+```{r}
+# Creamos una función que elimine los puntos
+reemplazar = function(x)setNames("",".")[x]
+# Aplicamos la función para reemplazar los puntos
+casas$precio <- stringr::str_replace_all(as.character(casas$precio), "[.]", reemplazar)
+# Observamos los datos
+head(casas$precio,20)
+```
+
+Aquí datos el formato numérico a los valores y eliminamos los NA's
+```{r}
+# Convertimos a formato numérico 
+options(scipen = 999)
+casas$precio <- as.numeric(casas$precio)
+# Removemos los NA's debido a la presencia de la palabra "Consultar"
+# Removemos los precios menores a USD 10.000
+# Contamos las filas resultantes
+casas <- casas %>% filter(!is.na(precio) & precio > 10000)
+casas %>% nrow()
+```
+
+Limpieza manual:
+Revisamos la relación entre **precio** y **m2**, luego vamos filtrando hasta encontrar un punto visual donde pueda encontrarse alguna relación.  
+```{r}
+casas %>%
+    filter(m2 < 800 & m2 > 100) %>%  # Usualmente queremos inmuebles dentro de estos parámetros de superficie construida
+    ggplot(aes(as.numeric(reorder(precio,m2)), m2, color = tipo)) +
+    geom_point() +
+    facet_wrap(~tipo) +
+    theme(legend.position = "none") +
+    labs(x = "Precio", y = "m2")
+```
+
+Por falta de datos y, porque en esta categoría puede entrar tanto departamentos como casas, removemos los **Condominios** de nuestra tabla.  
+También filtramos para tener solo valores donde:  
+1. El precio sea menor a **1 millón**
+2. La superficie construida sea menor a **800m2** y mayor a **100m2**
+```{r}
+casas <- casas %>% filter(tipo != "Condominio", precio < 1000000, m2 < 800 & m2 > 100)
+```
+
+
+## Atípicos {.tabset .tabset-fade .tabset-pills}
+
+**Nota:** *Los valores atípicos no suelen ser muchos y, por lo tanto, no llegan a afectar tanto a un modelo con variables normalizadas o estandarizadas así que, si se desea, se puede omitir esta sección*  
+
+### Ubicación de Atípicos
+Para este caso, solo eliminaremos los dos **Departamentos** alejados de la tendencia ubicados por encima de **700 m2**
+```{r}
+casas %>% filter(m2 >= 700, tipo == "Departamentos")
+```
+
+
+### Eliminación de Atípicos
+Con los atípicos ubicados, solo ingresamos los datos y removemos estas filas de la tabla
+```{r}
+# Para asegurarnos de que el código está correcto hacemos algunas verificaciones
+antes = nrow(casas)
+casas <- casas[!(casas$precio == 110000 & casas$m2 == 700),]
+casas <- casas[!(casas$precio == 79750 & casas$m2 == 725),]
+casas <- casas[!(casas$precio == 145000 & casas$m2 == 750),]
+despues = nrow(casas)
+filas_eliminadas = antes-despues
+paste("Se eliminaron", filas_eliminadas, "filas")
+```
+
+
+### Demostración de Reemplazo de valores
+A manera didáctica podemos observar, gracias a una búsqueda rápida en la web, el caso donde una de las propiedades presenta un valor erróneo, se trata del siguiente caso:  
+- **Casa** de **USD 385000** con **750 m2** con un valor real **450 m2**  
+```{r}
+# Proceso para reemplazar valores dadas ciertas condiciones lógicas
+casas$m2[casas$m2 == 750 & casas$precio == 385000] <- 450
+```
+
+
+## Limpieza de Zonas {.tabset .tabset-fade .tabset-pills}  
+
+Comencemos dando un vistazo a cómo lucen los datos luego de la limpieza de Precio y la superficie construida (m2)
+```{r}
+casas %>% 
+    ggplot(aes(as.numeric(reorder(precio,m2)), m2, color = tipo)) +
+    geom_point() +
+    facet_wrap(~tipo, ncol = 2) +
+    theme(legend.position = "none") +
+    labs(x = "Precio", y = "m2")
+```
+
+### Distribución de las zonas
+
+Ahora es momento de explorar un poco más sobre las zonas.  
+Vemos que se distinguen claramente 6 zonas de la Ciudad de Santa Cruz así como algunas variaciones.
+```{r}
+casas %>% count(zona, sort = T)
+```
+
+
+### Corregir NA's
+
+Una de las variaciones es un *NA* que, con una búsqueda rápida en la web, se puede deducir su zona y espacio de garajes.  Es así que rellenamos la información del NA sabiendo que tiene 2 garajes disponibles y es de zona Norte / Equipertol.
+```{r}
+casas$zona[is.na(casas$zona)] <- "Norte"
+casas$garajes[casas$garajes == 0 & casas$precio == 374000] <- 2
+```
+
+
+### Reubicar Zonas
+
+Ahora necesitamos conocer las zonas de los 4 inmuebles ubicados en *Ciudadelas*.  
+Nuevamente, buscando en la web, encontramos que:  
+- La Casa de USD 75000 es de **zona Este**  
+- La Casa de USD 135000 es de **zona Norte** y con 2 garajes  
+- La Casa de USD 48000 es de **zona Norte** 
+- El Departamento de USD 95000 es de **zona Oeste** y con 123 m2
+```{r}
+casas %>% filter(zona == "Ciudadelas")
+```
+
+
+### Corregir Zonas
+
+Con los datos recabados, reemplazamos los valores de la siguiente manera:
+```{r}
+casas$zona[casas$zona == "Ciudadelas" & casas$precio == 75000] <- "Este"
+casas$zona[casas$zona == "Ciudadelas" & casas$precio == 135000] <- "Norte"
+casas$garajes[casas$titulo == "Hermosa Casa En Venta De 2 Planta"] <- 2
+casas$zona[casas$zona == "Ciudadelas" & casas$precio == 48000] <- "Norte"
+casas$zona[casas$zona == "Ciudadelas" & casas$precio == 95000] <- "Oeste"
+casas$m2[casas$titulo == "Zona Oeste Entre 3er Y 4to Anillo Av. Centenario"] <- 123
+```
+
+
+### Limpieza Zonas
+
+Ahora ya podemos diferenciar 6 zonas que abarcan la gran mayoría del territorio cruceño  
+así como las variaciones que deberían concatenarse según la zona:  
+1. Centro
+2. Este
+3. Norte    ==    Equipetrol | Hamacas | Remanso
+4. Oeste    ==    Doble via la guardia | Las palmas | Urbari
+5. Sur      ==    Polanco
+6. Urubó
+```{r}
+casas$zona[casas$zona == "Norte / Equipetrol"] <- "Norte"
+casas$zona[casas$zona == "Norte / Hamacas"] <- "Norte"
+casas$zona[casas$zona == "Norte / Remanso"] <- "Norte"
+casas$zona[casas$zona == "Oeste / Doble via la guardia"] <- "Oeste"
+casas$zona[casas$zona == "Oeste / Las palmas"] <- "Oeste"
+casas$zona[casas$zona == "Oeste / Urbari"] <- "Oeste"
+casas$zona[casas$zona == "Sur / Polanco"] <- "Sur"
+```
+
+
+## Distribución de Propiedades
+Ahora podemos ver cómo luce la distribución de las zonas
+```{r}
+library(ggplot2)
+library(extrafont)
+loadfonts(device = "win")
+casas %>%
+  count(zona, tipo, sort = T) %>%
+  ggplot(aes(reorder(zona,-n))) +
+  geom_col(aes(y = n, fill = tipo)) +
+  coord_flip() +
+  theme(
+    legend.box      = "horizontal",
+    legend.title    = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(face = "bold", size = (18), hjust = 0.5),
+    text = element_text(size = 16, family = "Lato")
+    ) +
+  labs(title = "Distribución Según Zonas en Santa Cruz",
+       x = element_blank(), y = element_blank())
+```
+
+
+
+
+
+
+
